@@ -55,8 +55,10 @@ def initialize_session_state():
         st.session_state.data_store = DataStore(max_records=5000)
     if 'alert_manager' not in st.session_state:
         st.session_state.alert_manager = AlertManager()
+    if 'use_mock_data' not in st.session_state:
+        st.session_state.use_mock_data = True
     if 'ws_client' not in st.session_state:
-        st.session_state.ws_client = get_websocket_client(use_mock=True, symbol="BTC/USD")
+        st.session_state.ws_client = get_websocket_client(use_mock=st.session_state.use_mock_data, symbol="BTC/USD")
     if 'is_streaming' not in st.session_state:
         st.session_state.is_streaming = False
     if 'stream_task' not in st.session_state:
@@ -255,6 +257,22 @@ def main():
     # Sidebar controls
     with st.sidebar:
         st.header("⚙️ Configuration")
+        
+        # Data source toggle
+        st.subheader("Data Source")
+        use_real_data = st.checkbox("Use Real Binance Data", value=False)
+        if use_real_data != st.session_state.use_mock_data:
+            st.session_state.use_mock_data = not use_real_data
+            st.session_state.ws_client = get_websocket_client(use_mock=st.session_state.use_mock_data, symbol="BTC/USD")
+            if st.session_state.is_streaming:
+                st.warning("⚠️ Data source changed. Restart streaming.")
+        
+        if use_real_data:
+            st.info("🔴 Live Binance Data - Real BTCUSDT prices")
+        else:
+            st.info("📊 Mock Data - Simulated prices for testing")
+        
+        st.divider()
         
         # Streaming controls
         col1, col2 = st.columns(2)

@@ -1,7 +1,7 @@
 """
 WebSocket client for streaming real-time market data.
-Connects to a data source and streams live price data.
-Uses mock data if real WebSocket is unavailable.
+Connects to Binance WebSocket for live crypto price data.
+Falls back to mock data if connection fails.
 """
 
 import asyncio
@@ -9,6 +9,7 @@ import json
 from datetime import datetime
 from typing import Callable, Optional
 import random
+import websockets
 
 
 class MockWebSocketClient:
@@ -74,53 +75,97 @@ class MockWebSocketClient:
             await self.disconnect()
 
 
-class RealWebSocketClient:
-    """
-    Real WebSocket client for connecting to actual market data feeds.
-    Can be extended to use websockets library or specific exchange APIs.
-    """
+class BinanceWebSocketClient:
+    """Real WebSocket client that connects to Binance for live crypto data."""
     
-    def __init__(self, url: str, symbol: str):
+    def __init__(self, symbol: str = "btcusdt", interval: float = 1.0):
         """
-        Initialize real WebSocket client.
+        Initialize Binance WebSocket client.
         
         Args:
-            url: WebSocket URL to connect to
-            symbol: Trading pair symbol
+            symbol: Binance trading pair (lowercase, e.g., "btcusdt", "ethusdt")
+            interval: Update interval in seconds (note: Binance sends real-time data)
         """
-        self.url = url
         self.symbol = symbol
+        self.interval = interval
         self.is_connected = False
+        # Binance testnet URL
+        self.url = f"wss://stream.binance.com:9443/ws/{symbol}@trade"
         
     async def connect(self):
-        """Establish WebSocket connection."""
-        # Implementation would use websockets library
-        # Example: async with websockets.connect(self.url) as websocket:
+        """Establish WebSocket connection to Binance."""
         self.is_connected = True
+        print(f"[Binance WebSocket] Connecting to {self.symbol}...")
         
     async def disconnect(self):
         """Close WebSocket connection."""
         self.is_connected = False
+        print(f"[Binance WebSocket] Disconnected from {self.symbol}")
         
     async def stream_data(self, callback: Callable):
-        """Stream real price data."""
-        # Implementation would process actual WebSocket messages
-        pass
+        """
+        Stream live price data from Binance.
+        
+        Args:
+            callback: Async function to process each data point
+        """
+        await self.connect()
+        
+        try:
+            async with websockets.connect(self.url) as websocket:
+                print(f"[Binance WebSocket] Connected successfully to {self.symbol}")
+                
+                while self.is_connected:
+                    try:
+                        # Receive message from Binance
+                        message = await asyncio.wait_for(websocket.recv(), timeout=30)
+                        data = json.loads(message)
+                        
+                        # Parse Binance trade data
+                        tick_data = {
+                            "symbol": self.symbol.upper(),
+                            "timestamp": datetime.fromtimestamp(data['T'] / 1000).isoformat(),
+                            "price": float(data['p']),  # p = price
+                            "volume": float(data['q'])   # q = quantity
+                        }
+                        
+                        # Call callback with parsed data
+                        await callback(tick_data)
+                        
+                        # Optional: throttle updates
+                        await asyncio.sleep(self.interval)
+                        
+                    except asyncio.TimeoutError:
+                        print("[Binance WebSocket] Timeout waiting for data")
+                    except json.JSONDecodeError:
+                        print("[Binance WebSocket] Failed to parse message")
+                    except Exception as e:
+                        print(f"[Binance WebSocket] Error: {e}")
+                        
+        except Exception as e:
+            print(f"[Binance WebSocket] Connection error: {e}")
+            print("[Binance WebSocket] Falling back to mock data...")
+            # Fall back to mock data on connection failure
+            mock_client = MockWebSocketClient(symbol=self.symbol.upper())
+            await mock_client.stream_data(callback)
+        finally:
+            await self.disconnect()
 
 
-def get_websocket_client(use_mock: bool = True, symbol: str = "BTC/USD") -> MockWebSocketClient:
+def get_websocket_client(use_mock: bool = True, symbol: str = "BTC/USD") -> object:
     """
     Factory function to get WebSocket client.
     
     Args:
-        use_mock: Use mock data if True, else real WebSocket
+        use_mock: Use mock data if True, else real Binance WebSocket
         symbol: Trading pair symbol
         
     Returns:
-        WebSocket client instance
+        WebSocket client instance (Mock or Binance)
     """
     if use_mock:
         return MockWebSocketClient(symbol=symbol, interval=1.0)
     else:
-        # Would return RealWebSocketClient with actual URL
-        return MockWebSocketClient(symbol=symbol, interval=1.0)
+        # Convert symbol format: "BTC/USD" -> "btcusdt"
+        symbol_binance = symbol.split('/')[0].lower() + "usdt"
+        return BinanceWebSocketClient(symbol=symbol_binance, interval=0.5)
