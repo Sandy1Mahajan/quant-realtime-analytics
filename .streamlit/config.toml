@@ -1,0 +1,14 @@
+[client]
+showErrorDetails = true
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false
+
+[logger]
+level = "info"
+
+[server]
+headless = true
+runOnSave = true
+port = 8501
